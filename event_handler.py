@@ -2,12 +2,12 @@ import os
 import json
 import requests
 import config
+import uuid
 
 from datetime import datetime
 from google.cloud import storage
-from google.auth import impersonated_credentials
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify , g
 
 app = Flask(__name__)
 
@@ -17,7 +17,6 @@ sa_path  = os.getenv("SA")
 bucket_name = os.getenv("BUCKET_NAME")
 folder_name = os.getenv("FOLDER_NAME")
 
-os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = sa_path
 storage_client = storage.Client()
 
 current_date = datetime.utcnow().isoformat()   
@@ -73,7 +72,7 @@ def check_batch_file():
             record_data = json.loads(record)
             print("Count exist object", len(record_data))
 
-            if len(record_data) == 4:
+            if len(record_data) == 200:
                 print("BASE FILE IS FULL CREATE A NEW A NEW ONE")
                 new_target_number = create_new_target_file(target_exists)
                 print("New Target number is:", new_target_number)
@@ -95,29 +94,45 @@ def upload_to_gcs(payload):
     if check_bucket["status"] == "success":
         try:
             
-            bucket = storage_client.bucket(bucket_name)        
-                          
+            bucket = storage_client.bucket(bucket_name)       
             existing_data = json.loads(bucket.blob(check_bucket['file']).download_as_text() )            
             print("file from bucket", len(existing_data))           
             existing_data.append(json.loads(payload))
             print("Count additional object", len(existing_data))               
-              
             bucket.blob(check_bucket['file']).upload_from_string(json.dumps(existing_data), content_type="application/json")     
             print("successfully save to bucket")
             
         except requests.exceptions.RequestException as error:
             print(f"Error uploading JSON data to GCS: {error}")
 
-@app.route('/upload_to_gcs', methods=['POST'])
+@app.route('/events', methods=['POST'])
 def upload_to_gcs_route():
     try:
         payload = request.get_data().decode('utf-8')
         upload_to_gcs(payload)
-        return jsonify({"status": "success"}), 200
+        print("PAYLOAD WAS UPLOADED SUCCESSFULLY")
+        return jsonify({"status": 200 , "message": "Payload uploaded successfully"})
     except Exception as error:
-        print(f"Error in upload_to_gcs_route: {error}")
+        print(f"SOMETHING WENT WRONG: {error}")
         return jsonify({"status": "error", "message": str(error)}), 500
     
+@app.before_request
+def before_request_func():
+    execution_id = uuid.uuid4()
+    g.start_time = datetime.utcnow().isoformat()  
+    g.execution_id = execution_id
+    print(g.execution_id, "ROUTE CALLED ", request.url)
+
+@app.after_request
+def after_request(response):
+    if response and response.get_json():
+        data = response.get_json()
+        data["time_request"] = datetime.utcnow().isoformat()  
+        data["version"] = config.VERSION
+        response.set_data(json.dumps(data))
+
+    return response
+    
 if __name__ == "__main__":
-    # app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", config.PORT)))
-    app.run(host="127.0.0.1", port=config.PORT, debug=True)    
+    PORT = int(os.getenv("PORT")) if os.getenv("PORT") else 8080
+    app.run(host="127.0.0.1", port=PORT, debug=True)    
