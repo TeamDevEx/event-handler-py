@@ -25,26 +25,28 @@ base_event = f"webhook-event/github/event_1_{current_date}.json"
 
 def get_target_file(base_files):
     try:
-        max_value = 0
-        target = ""
+        max_value = None
+        target = float('-inf')
 
-        for i in base_files:
-            chars = list(i)
-            if len(chars) > 27:
-                result = int(chars[27])
-                if result > max_value:
-                    max_value = result
-                    target = i            
+        for element in base_files:
+            parts = element.split('_')
+            if len(parts) > 1:
+                number_str = parts[-2]
+                num = int(number_str)
+                if num > max_value:   
+                    max_value= num
+                    target = element            
         return target
     except Exception as error:        
         print(f"An error occurred in get_target_file: {error}")
         return None  
 
 
-def create_new_target_file(input_str):
+def create_new_target_file(file):
     try:
-        chars = list(input_str)
-        result = int(chars[27]) + 1
+        num = file.split('_')
+        number_str = num[-2]
+        result = int(number_str) + 1
         return result
     except (ValueError, IndexError) as error:        
         print(f"An error occurred in create_new_target_file: {error}")
@@ -61,7 +63,7 @@ def check_batch_file():
 
         target_exists = get_target_file(base_files)
         print("Does target exist?", target_exists)
-   
+
         if not target_exists:
             print("CREATE A NEW BASE FILE")             
             bucket.blob(base_event).upload_from_string(json.dumps([]),content_type="application/json")      
